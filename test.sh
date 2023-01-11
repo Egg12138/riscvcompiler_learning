@@ -8,15 +8,27 @@ assert() {
     # 在qemu上运行
     qemu-riscv64 ./tmp
     actual="$?"
+    echo "test $input..."
     if [ "$actual" = "$expected" ]; then
-        echo "left: \`$input\` == \`$actual\`"
-        echo "test [Ok]..."
+        echo "\tleft: \`$input\` == right: \`$actual\`"
+        echo "\t.[Ok]."
     else
-        echo "left:\`$input\` != right:\`$actual\`. \`$expected\` is expected!"
-        echo "test [Failed]..."
+        echo "\tleft:\`$input\` != right:\`$actual\`, \`$expected\` is expected!"
+        echo "\t.[Failed]."
         #exit 1
     fi
 }
 
+
+# assert 期待值 输入值
+# [1] 返回指定数值
 assert 0 0
 assert 42 42
+
+# [2] 支持+ -运算符
+assert 34 '12-34+56'
+
+# [3] 支持空格
+assert 41 ' 12 + 34 - 5 '
+
+echo "All done"
