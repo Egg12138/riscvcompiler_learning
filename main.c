@@ -6,309 +6,532 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#define NUM_BASE 10
-/* 这里我们统一用load double : ld rd, offset(rs1) 所以是8 bytes = 64bits*/
-#define SP_PUSH_SHIFT -8
-#define SP_POP_SHIFT  8
+//
+// 终结符分析，词法分析
+//
 
+// 为每个终结符都设置种类来表示
 typedef enum {
-    TK_PUNCT,
-    TK_DIGIT,
-    TK_EOF,
+  TK_PUNCT, // 操作符如： + -
+  TK_NUM,   // 数字
+  TK_EOF,   // 文件终止符，即文件的最后
 } TokenKind;
 
-typedef enum {
-    ND_ADD,
-    ND_SUB,
-    ND_MUL,
-    ND_DIV,
-    ND_DIGIT,
-} NodeKind;
-
-typedef struct Node ASTNode;
-struct Node {
-    NodeKind kind;
-    ASTNode *lhs;
-    ASTNode *rhs;
-    int val;
+// 终结符结构体
+typedef struct token Token;
+struct token {
+  TokenKind Kind; // 种类
+  Token *Next;    // 指向下一终结符
+  int Val;        // 值
+  char *Loc;      // 在解析的字符串内的位置
+  int Len;        // 长度
 };
-typedef ASTNode* AST;
 
-typedef struct Token Token;
-struct Token {
-    TokenKind kind;
-    Token *next;
-    int val;
-    char *loc;
-    int len;
-};
-static char *input_string;
-static void error(char *fmt, ...) {
+// 输入的字符串
+static char *InputString;
+
+// 输出错误信息
+// static文件内可以访问的函数
+// Fmt为传入的字符串， ... 为可变参数，表示Fmt后面所有的参数
+static void error(char *Fmt, ...) {
+  // 定义一个va_list变量
   va_list VA;
-  va_start(VA, fmt);
-  vfprintf(stderr, fmt, VA);
+  // VA获取Fmt后面的所有参数
+  va_start(VA, Fmt);
+  // vfprintf可以输出va_list类型的参数
+  vfprintf(stderr, Fmt, VA);
+  // 在结尾加上一个换行符
+  fprintf(stderr, "\n");
+  // 清除VA
+  va_end(VA);
+  // 终止程序
+  exit(1);
+}
+
+// 输出错误出现的位置
+static void verrorAt(char *Loc, char *Fmt, va_list VA) {
+  // 先输出源信息
+  fprintf(stderr, "%s\n", InputString);
+
+  // 输出出错信息
+  // 计算出错的位置，Loc是出错位置的指针，CurrentInput是当前输入的首地址
+  int Pos = Loc - InputString;
+  // 将字符串补齐为Pos位，因为是空字符串，所以填充Pos个空格。
+  fprintf(stderr, "%*s", Pos, "");
+  fprintf(stderr, "^ ");
+  vfprintf(stderr, Fmt, VA);
   fprintf(stderr, "\n");
   va_end(VA);
-  //exit(1);
 }
 
-// 位置显示只能正常支持ASCII字符。
-// TODO: 可以考虑支持Unicode
-static void verror_at(char *loc, char *fmt, va_list VA) {
-    fprintf(stderr, "%s\n", input_string); 
-    int position = loc - input_string;  
-    fprintf(stderr, "%*s", position, "");
-    fprintf(stderr, "^ ");
-    vfprintf(stderr, fmt, VA);
-    fprintf(stderr, "\n");
-    va_end(VA);
+// 字符解析出错，并退出程序
+static void errorAt(char *Loc, char *Fmt, ...) {
+  va_list VA;
+  va_start(VA, Fmt);
+  verrorAt(Loc, Fmt, VA);
+  exit(1);
 }
 
-static void error_at(char *loc, char *fmt, ...) {
-    va_list VArgs;
-    va_start(VArgs, fmt);
-    verror_at(loc, fmt, VArgs);
-    exit(1);
+// Tok解析出错，并退出程序
+static void errorTok(Token *token,char *Fmt, ...) {
+  va_list VA;
+  va_start(VA, Fmt);
+  verrorAt(token->Loc, Fmt, VA);
+  exit(1);
 }
 
-static void error_at_token(Token *token, char *fmt, ...) {
-    va_list VArgs;
-    va_start(VArgs, fmt);
-    verror_at(token->loc, fmt, VArgs);
-    exit(1);
+// 判断Tok的值是否等于指定值，没有用char，是为了后续拓展
+static bool equal(Token *token,char *Str) {
+  // 比较字符串LHS（左部），RHS（右部）的前N位，S2的长度应大于等于N.
+  // 比较按照字典序，LHS<RHS回负值，LHS=RHS返回0，LHS>RHS返回正值
+  // 同时确保，此处的Op位数=N
+  return memcmp(token->Loc, Str, token->Len) == 0 && Str[token->Len] == '\0';
 }
 
-Token *newToken(TokenKind kind, char *token_head, char *token_tail) {
-    // init内存为0
-    Token *token = (Token *)calloc(1, sizeof(Token));
-    token->kind = kind;
-    token->loc = token_head;
-    token->len = token_tail - token_head;
-    return token;
-} 
-
-
-// 将输入str整体作为一个string,传到tokenize里
-static Token *tokenize(){
-    Token head = {};
-    Token *cur = &head;
-    char *p = input_string;
-
-    while (*p) {
-        if (isspace(*p)) {
-            /* skip */
-            p++;
-            continue;
-        }
-
-        if (isdigit(*p)) {
-            cur->next = newToken(TK_DIGIT, p, p);
-            cur = cur->next;
-            const char *prev_ptr = p;
-            // NOTICE: strtol函数才是捕捉str的关键，*p++这样只是得到每一个char. 
-            // strtol是把传入指针从头开始的连续数字进行解析，如果开头就不是数字那就不解析了
-            // strtol这里将p进行了移动。
-            cur->val = strtol(p, &p, NUM_BASE);//base = 10 
-            cur->len = p - prev_ptr; 
-            continue;
-        }
-        if (ispunct(*p)){
-            cur->next = newToken(TK_PUNCT, p, p+1);
-            cur = cur->next;
-            p++;
-            continue; 
-        }
-
-        error_at(p, "invalid token: %c", *p);
-    } 
-    // add an EOF
-    cur->next = newToken(TK_EOF, p, p);
-    return head.next;
+// 跳过指定的Str
+static Token *skip(Token *token,char *Str) {
+  if (!equal(token,Str))
+    errorTok(token,"expect '%s'", Str);
+  return token->Next;
 }
 
-int numberFrom(Token *token) {
-   if (token->kind != TK_DIGIT) {
-      error("Got [%d], expect a number", token->val); 
-   }
-   return token->val;
+// 返回TK_NUM的值
+static int getNumber(Token *token) {
+  if (token->Kind != TK_NUM)
+    errorTok(token,"expect a number");
+  return token->Val;
 }
 
-
-static bool eq(Token *token, char *str) {
-    return memcmp(token->loc,str, token->len) == 0 && str[token->len] == '\0';
+// 生成新的Token
+static Token *newToken(TokenKind Kind, char *Start, char *End) {
+  // 分配1个Token的内存空间
+  Token *token = calloc(1, sizeof(Token));
+  token->Kind = Kind;
+  token->Loc = Start;
+  token->Len = End - Start;
+  return token;
 }
-static Token *skip(Token *token, char *str) {
-  if (!eq(token, str)) {
-     error_at_token(token, "expect '%s'", str); 
+
+// 判断Str是否以SubStr开头
+static bool startsWith(char *Str, char *SubStr) {
+  // 比较LHS和RHS的N个字符是否相等
+  return strncmp(Str, SubStr, strlen(SubStr)) == 0;
+}
+
+// 读取操作符
+static int readPunct(char *Ptr) {
+  // 判断2字节的操作符
+  if (startsWith(Ptr, "==") || startsWith(Ptr, "!=") || startsWith(Ptr, "<=") ||
+      startsWith(Ptr, ">="))
+    return 2;
+
+  // 判断1字节的操作符
+  return ispunct(*Ptr) ? 1 : 0;
+}
+
+// 终结符解析
+static Token *tokenize() {
+  char *P = InputString;
+  Token Head = {};
+  Token *Cur = &Head;
+
+  while (*P) {
+    // 跳过所有空白符如：空格、回车
+    if (isspace(*P)) {
+      ++P;
+      continue;
+    }
+
+    // 解析数字
+    if (isdigit(*P)) {
+      // 初始化，类似于C++的构造函数
+      // 我们不使用Head来存储信息，仅用来表示链表入口，这样每次都是存储在Cur->Next
+      // 否则下述操作将使第一个Token的地址不在Head中。
+      Cur->Next = newToken(TK_NUM, P, P);
+      // 指针前进
+      Cur = Cur->Next;
+      const char *OldPtr = P;
+      Cur->Val = strtoul(P, &P, 10);
+      Cur->Len = P - OldPtr;
+      continue;
+    }
+
+    // 解析操作符
+    int PunctLen = readPunct(P);
+    if (PunctLen) {
+      Cur->Next = newToken(TK_PUNCT, P, P + PunctLen);
+      Cur = Cur->Next;
+      // 指针前进Punct的长度位
+      P += PunctLen;
+      continue;
+    }
+
+    // 处理无法识别的字符
+    errorAt(P, "invalid token");
   }
-  return token->next;
+
+  // 解析结束，增加一个EOF，表示终止符。
+  Cur->Next = newToken(TK_EOF, P, P);
+  // Head无内容，所以直接返回Next
+  return Head.Next;
 }
 
-static ASTNode *newNode(NodeKind kind) {
-    ASTNode *node = calloc(1, sizeof(ASTNode));
-    node->kind = kind;
+//
+// 生成AST（抽象语法树），语法解析
+//
+
+// AST的节点种类
+typedef enum {
+  ND_ADD, // +
+  ND_SUB, // -
+  ND_MUL, // *
+  ND_DIV, // /
+  ND_NEG, // 负号-
+  ND_EQ,  // ==
+  ND_NE,  // !=
+  ND_LT,  // <
+  ND_LE,  // <=
+  ND_NUM, // 整形
+} NodeKind;
+
+// AST中二叉树节点
+typedef struct Node Node;
+struct Node {
+  NodeKind Kind; // 节点种类
+  Node *LHS;     // 左部，left-hand side
+  Node *RHS;     // 右部，right-hand side
+  int Val;       // 存储ND_NUM种类的值
+};
+
+// 新建一个节点
+static Node *newNode(NodeKind Kind) {
+  Node *node = calloc(1, sizeof(Node));
+  node->Kind = Kind;
+  return node;
+}
+
+// 新建一个单叉树
+static Node *newUnary(NodeKind Kind, Node *Expr) {
+  Node *node = newNode(Kind);
+  node->LHS = Expr;
+  return node;
+}
+
+// 新建一个二叉树节点
+static Node *newBinary(NodeKind Kind, Node *LHS, Node *RHS) {
+  Node *node = newNode(Kind);
+  node->LHS = LHS;
+  node->RHS = RHS;
+  return node;
+}
+
+// 新建一个数字节点
+static Node *newNum(int Val) {
+  Node *node = newNode(ND_NUM);
+  node->Val = Val;
+  return node;
+}
+
+// expr = equality
+// equality = relational ("==" relational | "!=" relational)*
+// relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+// add = mul ("+" mul | "-" mul)*
+// mul = unary ("*" unary | "/" unary)*
+// unary = ("+" | "-") unary | primary
+// primary = "(" expr ")" | num
+static Node *expr(Token **rest, Token *token);
+static Node *equality(Token **rest, Token *token);
+static Node *relational(Token **rest, Token *token);
+static Node *add(Token **rest, Token *token);
+static Node *mul(Token **rest, Token *token);
+static Node *unary(Token **rest, Token *token);
+static Node *primary(Token **rest, Token *token);
+
+// 解析表达式
+// expr = equality
+static Node *expr(Token **rest, Token *token) { return equality(rest, token); }
+
+// 解析相等性
+// equality = relational ("==" relational | "!=" relational)*
+static Node *equality(Token **rest, Token *token) {
+  // relational
+  Node *node = relational(&token,token);
+
+  // ("==" relational | "!=" relational)*
+  while (true) {
+    // "==" relational
+    if (equal(token,"==")) {
+      node = newBinary(ND_EQ, node, relational(&token,token->Next));
+      continue;
+    }
+
+    // "!=" relational
+    if (equal(token,"!=")) {
+      node = newBinary(ND_NE, node, relational(&token,token->Next));
+      continue;
+    }
+
+    *rest = token;
     return node;
+  }
 }
 
-static ASTNode *newBTNode(NodeKind kind, ASTNode *lhs, ASTNode *rhs) {
-    ASTNode *node = newNode(kind); 
-    node->lhs = lhs;
-    node->rhs = rhs;
+// 解析比较关系
+// relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+static Node *relational(Token **rest, Token *token) {
+  // add
+  Node *node = add(&token,token);
+
+  // ("<" add | "<=" add | ">" add | ">=" add)*
+  while (true) {
+    // "<" add
+    if (equal(token,"<")) {
+      node = newBinary(ND_LT, node, add(&token,token->Next));
+      continue;
+    }
+
+    // "<=" add
+    if (equal(token,"<=")) {
+      node = newBinary(ND_LE, node, add(&token,token->Next));
+      continue;
+    }
+
+    // ">" add
+    // X>Y等价于Y<X
+    if (equal(token,">")) {
+      node = newBinary(ND_LT, add(&token,token->Next), node);
+      continue;
+    }
+
+    // ">=" add
+    // X>=Y等价于Y<=X
+    if (equal(token,">=")) {
+      node = newBinary(ND_LE, add(&token,token->Next), node);
+      continue;
+    }
+
+    *rest = token;
     return node;
+  }
 }
 
-static ASTNode *newDigitNode(int number) {
-    ASTNode *node = newNode(ND_DIGIT);
-    node->val = number;
+// 解析加减
+// add = mul ("+" mul | "-" mul)*
+static Node *add(Token **rest, Token *token) {
+  // mul
+  Node *node = mul(&token,token);
+
+  // ("+" mul | "-" mul)*
+  while (true) {
+    // "+" mul
+    if (equal(token,"+")) {
+      node = newBinary(ND_ADD, node, mul(&token,token->Next));
+      continue;
+    }
+
+    // "-" mul
+    if (equal(token,"-")) {
+      node = newBinary(ND_SUB, node, mul(&token,token->Next));
+      continue;
+    }
+
+    *rest = token;
     return node;
+  }
 }
 
-static ASTNode *expr(Token **rest, Token *token);
-static ASTNode *mul(Token **rest, Token *token);
-static ASTNode *primary(Token **rest, Token *token);
+// 解析乘除
+// mul = unary ("*" unary | "/" unary)*
+static Node *mul(Token **rest, Token *token) {
+  // unary
+  Node *node = unary(&token,token);
 
-static ASTNode *expr(Token **rest, Token *token) {
-    ASTNode *node = mul(&token, token);
-    while (true) {
-        if (eq(token, "+")) {
-            node = newBTNode(ND_ADD, node, mul(&token, token->next));
-            continue;
-        }
-
-        if (eq(token, "-")) {
-            node = newBTNode(ND_SUB, node, mul(&token, token->next));
-            continue;
-        }
-        // 是+/-就会分割exprssion
-        *rest = token;
-        return node;
-    }
-}
-
-static ASTNode *mul(Token **rest, Token *token) {
-    ASTNode *node = primary(&token, token);
-    while (true) {
-        if (eq(token, "*")) {
-            node = newBTNode(ND_MUL, node, primary(&token, token->next));
-            continue;
-        }
-        if (eq(token, "/")) {
-            node = newBTNode(ND_DIV, node, primary(&token, token->next));
-            continue;
-        }
-        *rest = token;
-        return node;
-    } 
-}
-
-static ASTNode *primary(Token **rest, Token *token) {
-    ASTNode *node;
-    if (eq(token, "(")) {
-        node = expr(&token, token->next);
-        *rest = skip(token, ")"); // the next token
-        return node;
-    } 
-
-    if (token->kind == TK_DIGIT) {
-        node = newDigitNode(token->val);
-        *rest = token->next;
-        return node;
+  // ("*" unary | "/" unary)*
+  while (true) {
+    // "*" unary
+    if (equal(token,"*")) {
+      node = newBinary(ND_MUL, node, unary(&token,token->Next));
+      continue;
     }
 
-    error_at_token(token, "expected an expression");
-    return NULL;
-}
-
-static int depth = 0;
-// sd rs2, offset(rs1): 将x[rs2]中的8bytes->x[rs1]+extend_offset
-static void push_to_stack(void) {
-    printf(" addi sp, sp, %d\n", SP_PUSH_SHIFT);
-    printf(" sd a0, 0(sp)\n");
-    depth++;
-}
-
-static void pop_to(char *target_rs) {
-    printf(" ld %s, 0(sp)\n", target_rs); // 将sp + offset:0处的双字(2*4bytes)写到target_rs中
-    printf(" addi sp, sp, %d\n", SP_POP_SHIFT);                      // 然后再移动栈指针
-    depth--; 
-} 
-
-// TODO: 这种递归在这种小算式中效率没有什么问题。
-// 递归地生成，右枝优先. 最顶层地传入为AST ast根节点. LHS->a1, RHS->a0
-static void gen_expr(ASTNode *node) {
-    if (node->kind == ND_DIGIT) {
-        printf(" li a0, %d\n", node->val);
-        return;
-    } 
-    // if puncts:
-    gen_expr(node->rhs);
-    push_to_stack();
-    gen_expr(node->lhs);
-    pop_to("a1");
-
-    switch (node->kind)
-    {
-    case ND_ADD:
-        printf(" add a0, a0, a1\n");
-        return;
-    case ND_SUB: 
-        printf(" sub a0, a0, a1\n");
-        return;
-    case ND_MUL:
-        printf(" mul a0, a0, a1\n");
-        return;
-    case ND_DIV:
-        printf(" div a0, a0, a1\n");
-        return;
-    default:
-        error("invalid expression!");
+    // "/" unary
+    if (equal(token,"/")) {
+      node = newBinary(ND_DIV, node, unary(&token,token->Next));
+      continue;
     }
 
-}
-/**
- * 1. check input => valid arguments
- * 2. parse arguments => token series  
- * 3. parse token series & move the tokens' marker to EOF => AST 
- * 4. parse AST => expression
- * 5. generate expr => tmp.s
- * 6. some other things.
-*/
-int
-main(int argc, char **argv)
-{
-
-    //1
-    if (argc != 2) {
-        error("%s: invalid number of arguments!", argv[0]);
-    }
-    input_string = argv[1];
-    //2
-    Token *token = tokenize();
-    //3
-    AST ast = expr(&token, token); 
-    if (token->kind != TK_EOF)
-        error_at_token(token, "extra token after EOF");
-
-    printf("  .globl main\n");
-    printf("main:\n");
-
-    gen_expr(ast);
-    // printf(" li a0, %d\n", numberFrom(token)); 
-    // token = token->next;
-    // while (token->kind != TK_EOF) {
-    //     if (eq(token, "+")) {
-    //         token = token->next;
-    //         printf(" addi a0, a0, %d\n", numberFrom(token));
-    //         token = token->next;
-    //         continue;
-    //     } 
-    //     // else => '-'
-    //     token = skip(token, "-");
-    //     printf(" addi a0, a0, -%d\n", numberFrom(token));
-    //     token = token->next;
-    // }
-    printf(" ret\n");
-    assert(depth==0);
-    return 0;
+    *rest = token;
+    return node;
+  }
 }
 
+// 解析一元运算
+// unary = ("+" | "-") unary | primary
+static Node *unary(Token **rest, Token *token) {
+  // "+" unary
+  if (equal(token,"+"))
+    return unary(rest, token->Next);
+
+  // "-" unary
+  if (equal(token,"-"))
+    return newUnary(ND_NEG, unary(rest, token->Next));
+
+  // primary
+  return primary(rest, token);
+}
+
+// 解析括号、数字
+// primary = "(" expr ")" | num
+static Node *primary(Token **rest, Token *token) {
+  // "(" expr ")"
+  if (equal(token,"(")) {
+    Node *node = expr(&token,token->Next);
+    *rest = skip(token,")");
+    return node;
+  }
+
+  // num
+  if (token->Kind == TK_NUM) {
+    Node *node = newNum(token->Val);
+    *rest = token->Next;
+    return node;
+  }
+
+  errorTok(token,"expected an expression");
+  return NULL;
+}
+
+//
+// 语义分析与代码生成
+//
+
+// 记录栈深度
+static int Depth;
+
+// 压栈，将结果临时压入栈中备用
+// sp为栈指针，栈反向向下增长，64位下，8个字节为一个单位，所以sp-8
+// 当前栈指针的地址就是sp，将a0的值压入栈
+// 不使用寄存器存储的原因是因为需要存储的值的数量是变化的。
+static void push(void) {
+  printf("  addi sp, sp, -8\n");
+  printf("  sd a0, 0(sp)\n");
+  Depth++;
+}
+
+// 弹栈，将sp指向的地址的值，弹出到a1
+static void pop(char *Reg) {
+  printf("  ld %s, 0(sp)\n", Reg);
+  printf("  addi sp, sp, 8\n");
+  Depth--;
+}
+
+// 生成表达式
+static void gen_expr(Node *node) {
+  // 生成各个根节点
+  switch (node->Kind) {
+  // 加载数字到a0
+  case ND_NUM:
+    printf("  li a0, %d\n", node->Val);
+    return;
+  // 对寄存器取反
+  case ND_NEG:
+    gen_expr(node->LHS);
+    // neg a0, a0是sub a0, x0, a0的别名, 即a0=0-a0
+    printf("  neg a0, a0\n");
+    return;
+  default:
+    break;
+  }
+
+  // 递归到最右节点
+  gen_expr(node->RHS);
+  // 将结果压入栈
+  push();
+  // 递归到左节点
+  gen_expr(node->LHS);
+  // 将结果弹栈到a1
+  pop("a1");
+
+  // 生成各个二叉树节点
+  switch (node->Kind) {
+  case ND_ADD: // + a0=a0+a1
+    printf("  add a0, a0, a1\n");
+    return;
+  case ND_SUB: // - a0=a0-a1
+    printf("  sub a0, a0, a1\n");
+    return;
+  case ND_MUL: // * a0=a0*a1
+    printf("  mul a0, a0, a1\n");
+    return;
+  case ND_DIV: // / a0=a0/a1
+    printf("  div a0, a0, a1\n");
+    return;
+  case ND_EQ:
+  case ND_NE:
+    // a0=a0^a1，异或指令
+    printf("  xor a0, a0, a1\n");
+
+    if (node->Kind == ND_EQ)
+      // a0==a1
+      // a0=a0^a1, sltiu a0, a0, 1
+      // 等于0则置1
+      printf("  seqz a0, a0\n");
+    else
+      // a0!=a1
+      // a0=a0^a1, sltu a0, x0, a0
+      // 不等于0则置1
+      printf("  snez a0, a0\n");
+    return;
+  case ND_LT:
+    printf("  slt a0, a0, a1\n");
+    return;
+  case ND_LE:
+    // a0<=a1等价于
+    // a0=a1<a0, a0=a1^1
+    printf("  slt a0, a1, a0\n");
+    printf("  xori a0, a0, 1\n");
+    return;
+  default:
+    break;
+  }
+
+  error("invalid expression");
+}
+
+int main(int argc, char **argv) {
+  // 判断传入程序的参数是否为2个，argv[0]为程序名称，argv[1]为传入的第一个参数
+  if (argc != 2) {
+    // 异常处理，提示参数数量不对。
+    // fprintf，格式化文件输出，往文件内写入字符串
+    // stderr，异常文件（Linux一切皆文件），用于往屏幕显示异常信息
+    // %s，字符串
+    error("%s: invalid number of arguments", argv[0]);
+  }
+
+  // 解析argv[1]，生成终结符流
+  InputString = argv[1];
+  Token *token = tokenize();
+
+  // 解析终结符流
+  Node *node = expr(&token,token);
+
+  if (token->Kind != TK_EOF)
+    errorTok(token,"extra token");
+
+  // 声明一个全局main段，同时也是程序入口段
+  printf("  .globl main\n");
+  // main段标签
+  printf("main:\n");
+
+  // 遍历AST树生成汇编
+  gen_expr(node);
+
+  // ret为jalr x0, x1, 0别名指令，用于返回子程序
+  // 返回的为a0的值
+  printf("  ret\n");
+
+  // 如果栈未清空则报错
+  assert(Depth == 0);
+
+  return 0;
+}

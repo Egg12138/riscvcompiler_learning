@@ -3,7 +3,7 @@ CFLAGS=-std=c11 -g -fno-common
 CC=gcc
 
 # default 
-rvcc: main.o
+build: main.o
 	$(CC) $(CFLAGS) -o rvcc main.o
 
 
