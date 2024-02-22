@@ -1,11 +1,14 @@
 # -fno-common禁止了将未初始化的全局变量放入common段
 CFLAGS=-std=c11 -g -fno-common 
 CC=gcc
+SRCS=$(wildcard *.c)
+OBJS=$(SRCS:.c=.o)
 
 # default 
-build: main.o
-	$(CC) $(CFLAGS) -o rvcc main.o
+rvcc: $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
+$(OBJS): rvcc.h
 
 test: rvcc
 	sh ./test.sh
