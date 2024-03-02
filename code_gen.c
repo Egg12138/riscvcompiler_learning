@@ -1,4 +1,5 @@
 #include "rvcc.h"
+#define SP_INCR(o) printf("  addi sp, sp, %d\n", (o))
 
 //
 // 语义分析与代码生成
@@ -12,8 +13,8 @@ static int Depth;
 // 当前栈指针的地址就是sp，将a0的值压入栈
 // 不使用寄存器存储的原因是因为需要存储的值的数量是变化的。
 static void push(void) {
-  printf("  addi sp, sp, -8\n");
-  printf("  sd a0, 0(sp)\n");
+  SP_INCR(-8);
+  printf("  sd a0, 0(sp)    #push stack\n"); 
   Depth++;
 }
 
@@ -22,6 +23,20 @@ static void pop(char *Reg) {
   printf("  ld %s, 0(sp)\n", Reg);
   printf("  addi sp, sp, 8\n");
   Depth--;
+}
+
+static void gen_addr(Node *node) {
+  if (node->kind == ND_VAR) {
+    int offset;
+    // if (node->name_1letter <= 'Z') 
+      // offset = (node->name_1letter -  'A' + 1) * 8;
+    // else
+      offset = (node->name_1letter - 'a' + 1) * 8;
+    printf("  addi a0, fp, %d\n", -offset);
+    return;
+  }
+
+  error("not a lvalue");
 }
 
 // 生成表达式
@@ -37,6 +52,17 @@ static void gen_expr(Node *node) {
     gen_expr(node->LHS);
     // neg a0, a0是sub a0, x0, a0的别名, 即a0=0-a0
     printf("  neg a0, a0\n");
+    return;
+  case ND_VAR:
+    gen_addr(node);
+    printf("  ld a0, 0(a0)\n");
+    return;
+  case ND_ASSIGN:
+    gen_addr(node->LHS);
+    push();
+    gen_expr(node->RHS);
+    pop("a1");
+    printf("  sd a0, 0(a1)\n");
     return;
   default:
     break;
@@ -112,12 +138,23 @@ void code_gen(Node *prog_first_stmt) {
   // main段标签
   printf("main:\n");
 
+  // stack layout
+  SP_INCR(-8);
+  printf("  sd fp, 0(sp)\n"); // store fp -> 0(sp)
+  printf("  mv fp, sp\n"); // save original sp 
+  printf("  addi sp, sp, -208\n");
+
+  printf("#...over entry\n");
+
   for (Node *n = prog_first_stmt; n; n = n->next) {
     gen_stmt(n) ;
     assert(Depth == 0);
   }
-  // 如果栈未清空则报错
-  // assert(Depth == 0);
+
+  printf("#...over\n");
+  printf("  mv sp, fp\n");
+  printf("  ld fp, 0(sp)\n");
+  SP_INCR(8);
   printf("  ret\n");
 
 }

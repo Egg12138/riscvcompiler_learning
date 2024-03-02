@@ -65,7 +65,15 @@ assert 1 '5==2+3;'
 assert 0 '6==4+3;'
 assert 1 '0*9+5*2==4+4*(6/3)-2;'
 
-# [9]; 
+# [Single Alpha Variable]; 
+assert 3 'a = 3; a;'
+assert 8 ' a = 3; z = 5; a + z;'
+assert 6 'z=y=3; z + y;'
+assert 5 'a=3;b=4;a=1;a+b;'
+assert 0 'a=3;'
 
+# TODO [最后总是期待一个返回值, 无;则返回(rust)]
+assert 5 'a = 5; a'
+assert 0 'b = 3; '
 # 如果运行正常未提前退出，程序将显示OK
 echo OK

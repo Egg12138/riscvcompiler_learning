@@ -10,7 +10,7 @@
       "request": "launch",
       "program": "${workspaceRoot}/rvcc",
       "args": [
-        "(5 * 9)",
+        "a = 5; a;",
       ],
       "stopAtEntry": true,
       "cwd": "${workspaceFolder}",

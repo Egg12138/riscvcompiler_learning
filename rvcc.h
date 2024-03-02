@@ -5,7 +5,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-
+#define IS_LETTER(p) \
+  ('a' <= *(p) && *(p) <= 'z') \
+  // || ('A' <= *(p) && *(p) <= 'Z'))
+      
 /** type defenitions */
 //
 // 终结符分析，词法分析
@@ -16,6 +19,7 @@ typedef enum {
   TK_PUNCT, // 操作符如： + -
   TK_NUM,   // 数字
   TK_EOF,   // 文件终止符，即文件的最后
+  TK_IDENT, 
 } TokenKind;
 
 // 终结符结构体
@@ -24,7 +28,7 @@ struct token {
   TokenKind kind; // 种类
   Token *next;    // 指向下一终结符
   int val;        // 值
-  char *loc;      // 在解析的字符串内的位置
+  char *loc;      // 在解析的字符串内的位置(指针位置)
   int len;        // 长度
 };
 
@@ -44,7 +48,9 @@ typedef enum {
   ND_NE,  // !=
   ND_LT,  // <
   ND_LE,  // <=
+  ND_ASSIGN, // assignments
   ND_EXPR_STMT, 
+  ND_VAR, // variable
   ND_NUM, // 整形
 } NodeKind;
 
@@ -56,12 +62,13 @@ struct Node {
   Node *LHS;     // 左部，left-hand side
   Node *RHS;     // 右部，right-hand side
   int val;       // 存储ND_NUM种类的值
+  char name_1letter; 
 };
 
 
 // tokenize.c
 Token* tokenize(char *intpustring);
-bool equal(Token *token, char *str);
+bool eq(Token *token, char *str);
 Token *skip(Token *token, char *pattern);
 
 // parse.c

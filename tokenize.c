@@ -52,7 +52,7 @@ void error_token(Token *token,char *fmt, ...) {
   exit(1);
 }
 // 判断Tok的值是否等于指定值，没有用char，是为了后续拓展
-bool equal(Token *token,char *Str) {
+bool eq(Token *token,char *Str) {
   // 比较字符串LHS（左部），RHS（右部）的前N位，S2的长度应大于等于N.
   // 比较按照字典序，LHS<RHS回负值，LHS=RHS返回0，LHS>RHS返回正值
   // 同时确保，此处的Op位数=N
@@ -61,7 +61,7 @@ bool equal(Token *token,char *Str) {
 
 // 跳过指定的Str
 Token *skip(Token *token,char *Str) {
-  if (!equal(token,Str))
+  if (!eq(token,Str))
     error_token(token,"expect '%s'", Str);
   return token->next;
 }
@@ -127,6 +127,12 @@ Token *tokenize(char *p) {
       continue;
     }
 
+    if (IS_LETTER(p)) {
+      cur->next = new_token(TK_IDENT, p, p + 1);
+      cur = cur->next;
+      ++p;
+      continue;
+    }
     // 解析操作符
     int punctlen = read_punct(p);
     if (punctlen) {
@@ -136,6 +142,7 @@ Token *tokenize(char *p) {
       p += punctlen;
       continue;
     }
+
 
     // 处理无法识别的字符
     error_at(p, "invalid token");

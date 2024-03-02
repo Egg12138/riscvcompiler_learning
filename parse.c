@@ -1,6 +1,10 @@
 #include "rvcc.h"
 
-// expr = equality
+// program = stmt *
+// stmt = expr_stmt
+// expr_stmt = expr ";"
+// expr = assign
+// assign = equality
 // equality = relational ("==" relational | "!=" relational)*
 // relational = add ("<" add | "<=" add | ">" add | ">=" add)*
 // add = mul ("+" mul | "-" mul)*
@@ -10,6 +14,7 @@
 static Node *expr_stmt(Token **rest, Token *token);
 static Node *stmt(Token **rest, Token *token);
 static Node *expr(Token **rest, Token *token);
+static Node *assign(Token **rest, Token *token);
 static Node *equality(Token **rest, Token *token);
 static Node *relational(Token **rest, Token *token);
 static Node *add(Token **rest, Token *token);
@@ -48,12 +53,27 @@ static Node *new_num(int val) {
   return node;
 }
 
+static Node *new_var(char name_1letter) {
+  Node *node = new_node(ND_VAR);
+  node->name_1letter = name_1letter;
+  return node;
+}
 
 
 // 解析表达式
 // expr = equality
 static Node *expr(Token **rest, Token *token) 
-{ return equality(rest, token); }
+{ return assign(rest, token); }
+
+static Node *assign(Token **rest, Token *token) {
+  Node *node = equality(&token, token);
+  // a = b = c = ...
+  if (eq(token, "=")) 
+    node = new_binary(ND_ASSIGN, node, 
+      assign(&token, token->next));
+  *rest = token;
+  return node;
+}
 
 static Node *stmt(Token **rest, Token *token) 
 { return expr_stmt(rest, token); }
@@ -74,13 +94,13 @@ static Node *equality(Token **rest, Token *token) {
   // ("==" relational | "!=" relational)*
   while (true) {
     // "==" relational
-    if (equal(token,"==")) {
+    if (eq(token,"==")) {
       node = new_binary(ND_EQ, node, relational(&token,token->next));
       continue;
     }
 
     // "!=" relational
-    if (equal(token,"!=")) {
+    if (eq(token,"!=")) {
       node = new_binary(ND_NE, node, relational(&token,token->next));
       continue;
     }
@@ -99,27 +119,27 @@ static Node *relational(Token **rest, Token *token) {
   // ("<" add | "<=" add | ">" add | ">=" add)*
   while (true) {
     // "<" add
-    if (equal(token,"<")) {
+    if (eq(token,"<")) {
       node = new_binary(ND_LT, node, add(&token,token->next));
       continue;
     }
 
     // "<=" add
-    if (equal(token,"<=")) {
+    if (eq(token,"<=")) {
       node = new_binary(ND_LE, node, add(&token,token->next));
       continue;
     }
 
     // ">" add
     // X>Y等价于Y<X
-    if (equal(token,">")) {
+    if (eq(token,">")) {
       node = new_binary(ND_LT, add(&token,token->next), node);
       continue;
     }
 
     // ">=" add
     // X>=Y等价于Y<=X
-    if (equal(token,">=")) {
+    if (eq(token,">=")) {
       node = new_binary(ND_LE, add(&token,token->next), node);
       continue;
     }
@@ -138,13 +158,13 @@ static Node *add(Token **rest, Token *token) {
   // ("+" mul | "-" mul)*
   while (true) {
     // "+" mul
-    if (equal(token,"+")) {
+    if (eq(token,"+")) {
       node = new_binary(ND_ADD, node, mul(&token,token->next));
       continue;
     }
 
     // "-" mul
-    if (equal(token,"-")) {
+    if (eq(token,"-")) {
       node = new_binary(ND_SUB, node, mul(&token,token->next));
       continue;
     }
@@ -163,13 +183,13 @@ static Node *mul(Token **rest, Token *token) {
   // ("*" unary | "/" unary)*
   while (true) {
     // "*" unary
-    if (equal(token,"*")) {
+    if (eq(token,"*")) {
       node = new_binary(ND_MUL, node, unary(&token,token->next));
       continue;
     }
 
     // "/" unary
-    if (equal(token,"/")) {
+    if (eq(token,"/")) {
       node = new_binary(ND_DIV, node, unary(&token,token->next));
       continue;
     }
@@ -183,24 +203,31 @@ static Node *mul(Token **rest, Token *token) {
 // unary = ("+" | "-") unary | primary
 static Node *unary(Token **rest, Token *token) {
   // "+" unary
-  if (equal(token,"+"))
+  if (eq(token,"+"))
     return unary(rest, token->next);
 
   // "-" unary
-  if (equal(token,"-"))
+  if (eq(token,"-"))
     return new_unary(ND_NEG, unary(rest, token->next));
 
   // primary
   return primary(rest, token);
 }
 
-// 解析括号、数字
-// primary = "(" expr ")" | num
+// 解析括号、数字、varianle
+// primary = "(" expr ")" | ident | num 
 static Node *primary(Token **rest, Token *token) {
   // "(" expr ")"
-  if (equal(token,"(")) {
+  if (eq(token,"(")) {
     Node *node = expr(&token,token->next);
     *rest = skip(token,")");
+    return node;
+  }
+
+  // var
+  if (token->kind == TK_IDENT) {
+    Node *node = new_var(*token->loc);
+    *rest = token->next;
     return node;
   }
 
