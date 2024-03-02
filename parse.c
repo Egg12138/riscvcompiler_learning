@@ -7,6 +7,8 @@
 // mul = unary ("*" unary | "/" unary)*
 // unary = ("+" | "-") unary | primary
 // primary = "(" expr ")" | num
+static Node *expr_stmt(Token **rest, Token *token);
+static Node *stmt(Token **rest, Token *token);
 static Node *expr(Token **rest, Token *token);
 static Node *equality(Token **rest, Token *token);
 static Node *relational(Token **rest, Token *token);
@@ -17,30 +19,31 @@ static Node *primary(Token **rest, Token *token);
 
 
 // 新建一个节点
-static Node *newNode(NodeKind kind) {
+static Node *new_node(NodeKind kind) {
   Node *node = calloc(1, sizeof(Node));
   node->kind = kind;
   return node;
 }
 
 // 新建一个单叉树
-static Node *newUnary(NodeKind kind, Node *expr) {
-  Node *node = newNode(kind);
+static Node *new_unary(NodeKind kind, Node *expr) {
+  Node *node = new_node(kind);
   node->LHS = expr;
+  // node->RHS = NULL;
   return node;
 }
 
 // 新建一个二叉树节点
-static Node *newBinary(NodeKind kind, Node *LHS, Node *RHS) {
-  Node *node = newNode(kind);
-  node->LHS = LHS;
-  node->RHS = RHS;
+static Node *new_binary(NodeKind kind, Node *lhs, Node *rhs) {
+  Node *node = new_node(kind);
+  node->LHS = lhs;
+  node->RHS = rhs;
   return node;
 }
 
 // 新建一个数字节点
-static Node *newNum(int val) {
-  Node *node = newNode(ND_NUM);
+static Node *new_num(int val) {
+  Node *node = new_node(ND_NUM);
   node->val = val;
   return node;
 }
@@ -52,6 +55,15 @@ static Node *newNum(int val) {
 static Node *expr(Token **rest, Token *token) 
 { return equality(rest, token); }
 
+static Node *stmt(Token **rest, Token *token) 
+{ return expr_stmt(rest, token); }
+
+static Node *expr_stmt(Token **rest, Token *token) 
+{ 
+  Node *node = new_unary(ND_EXPR_STMT, expr(&token, token));
+  *rest = skip(token, ";");
+  return node;
+}
 
 // 解析相等性
 // equality = relational ("==" relational | "!=" relational)*
@@ -63,13 +75,13 @@ static Node *equality(Token **rest, Token *token) {
   while (true) {
     // "==" relational
     if (equal(token,"==")) {
-      node = newBinary(ND_EQ, node, relational(&token,token->next));
+      node = new_binary(ND_EQ, node, relational(&token,token->next));
       continue;
     }
 
     // "!=" relational
     if (equal(token,"!=")) {
-      node = newBinary(ND_NE, node, relational(&token,token->next));
+      node = new_binary(ND_NE, node, relational(&token,token->next));
       continue;
     }
 
@@ -88,27 +100,27 @@ static Node *relational(Token **rest, Token *token) {
   while (true) {
     // "<" add
     if (equal(token,"<")) {
-      node = newBinary(ND_LT, node, add(&token,token->next));
+      node = new_binary(ND_LT, node, add(&token,token->next));
       continue;
     }
 
     // "<=" add
     if (equal(token,"<=")) {
-      node = newBinary(ND_LE, node, add(&token,token->next));
+      node = new_binary(ND_LE, node, add(&token,token->next));
       continue;
     }
 
     // ">" add
     // X>Y等价于Y<X
     if (equal(token,">")) {
-      node = newBinary(ND_LT, add(&token,token->next), node);
+      node = new_binary(ND_LT, add(&token,token->next), node);
       continue;
     }
 
     // ">=" add
     // X>=Y等价于Y<=X
     if (equal(token,">=")) {
-      node = newBinary(ND_LE, add(&token,token->next), node);
+      node = new_binary(ND_LE, add(&token,token->next), node);
       continue;
     }
 
@@ -127,13 +139,13 @@ static Node *add(Token **rest, Token *token) {
   while (true) {
     // "+" mul
     if (equal(token,"+")) {
-      node = newBinary(ND_ADD, node, mul(&token,token->next));
+      node = new_binary(ND_ADD, node, mul(&token,token->next));
       continue;
     }
 
     // "-" mul
     if (equal(token,"-")) {
-      node = newBinary(ND_SUB, node, mul(&token,token->next));
+      node = new_binary(ND_SUB, node, mul(&token,token->next));
       continue;
     }
 
@@ -152,13 +164,13 @@ static Node *mul(Token **rest, Token *token) {
   while (true) {
     // "*" unary
     if (equal(token,"*")) {
-      node = newBinary(ND_MUL, node, unary(&token,token->next));
+      node = new_binary(ND_MUL, node, unary(&token,token->next));
       continue;
     }
 
     // "/" unary
     if (equal(token,"/")) {
-      node = newBinary(ND_DIV, node, unary(&token,token->next));
+      node = new_binary(ND_DIV, node, unary(&token,token->next));
       continue;
     }
 
@@ -176,7 +188,7 @@ static Node *unary(Token **rest, Token *token) {
 
   // "-" unary
   if (equal(token,"-"))
-    return newUnary(ND_NEG, unary(rest, token->next));
+    return new_unary(ND_NEG, unary(rest, token->next));
 
   // primary
   return primary(rest, token);
@@ -194,7 +206,7 @@ static Node *primary(Token **rest, Token *token) {
 
   // num
   if (token->kind == TK_NUM) {
-    Node *node = newNum(token->val);
+    Node *node = new_num(token->val);
     *rest = token->next;
     return node;
   }
@@ -207,8 +219,11 @@ static Node *primary(Token **rest, Token *token) {
 
 
 Node *parse(Token *token) {
-   Node *node = expr(&token,token);
-   if (token->kind != TK_EOF)
-      error_token(token, "extra token");
-      return node;
+  Node prog_head = {};
+  Node *cur = &prog_head;
+  while (token->kind != TK_EOF) {
+    cur->next = stmt(&token, token);
+    cur = cur->next;
+  }
+  return prog_head.next;
 }

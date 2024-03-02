@@ -67,14 +67,14 @@ Token *skip(Token *token,char *Str) {
 }
 
 // 返回TK_NUM的值
-static int getNumber(Token *token) {
+static int get_number(Token *token) {
   if (token->kind != TK_NUM)
     error_token(token,"expect a number");
   return token->val;
 }
 
 // 生成新的Token
-static Token *newToken(TokenKind Kind, char *Start, char *End) {
+static Token *new_token(TokenKind Kind, char *Start, char *End) {
   // 分配1个Token的内存空间
   Token *token = calloc(1, sizeof(Token));
   token->kind = Kind;
@@ -84,66 +84,66 @@ static Token *newToken(TokenKind Kind, char *Start, char *End) {
 }
 
 // 判断Str是否以SubStr开头
-static bool startsWith(char *Str, char *SubStr) {
+static bool starts_with(char *str, char *substr) {
   // 比较LHS和RHS的N个字符是否相等
-  return strncmp(Str, SubStr, strlen(SubStr)) == 0;
+  return strncmp(str, substr, strlen(substr)) == 0;
 }
 
 // 读取操作符
-static int readPunct(char *Ptr) {
+static int read_punct(char *ptr) {
   // 判断2字节的操作符
-  if (startsWith(Ptr, "==") || startsWith(Ptr, "!=") || startsWith(Ptr, "<=") ||
-      startsWith(Ptr, ">="))
+  if (starts_with(ptr, "==") || starts_with(ptr, "!=") || starts_with(ptr, "<=") ||
+      starts_with(ptr, ">="))
     return 2;
 
   // 判断1字节的操作符
-  return ispunct(*Ptr) ? 1 : 0;
+  return ispunct(*ptr) ? 1 : 0;
 }
 
 // 终结符解析
-Token *tokenize(char *P) {
-  current_input = P;
-  Token Head = {};
-  Token *Cur = &Head;
+Token *tokenize(char *p) {
+  current_input = p;
+  Token head = {};
+  Token *cur = &head;
 
-  while (*P) {
+  while (*p) {
     // 跳过所有空白符如：空格、回车
-    if (isspace(*P)) {
-      ++P;
+    if (isspace(*p)) {
+      ++p;
       continue;
     }
 
     // 解析数字
-    if (isdigit(*P)) {
+    if (isdigit(*p)) {
       // 初始化，类似于C++的构造函数
       // 我们不使用Head来存储信息，仅用来表示链表入口，这样每次都是存储在Cur->next
       // 否则下述操作将使第一个Token的地址不在Head中。
-      Cur->next = newToken(TK_NUM, P, P);
+      cur->next = new_token(TK_NUM, p, p);
       // 指针前进
-      Cur = Cur->next;
-      char *OldPtr = P;
-      Cur->val = strtoul(P, &P, 10);
-      Cur->len = P - OldPtr;
+      cur = cur->next;
+      char *old_ptr = p;
+      cur->val = strtoul(p, &p, 10);
+      cur->len = p - old_ptr;
       continue;
     }
 
     // 解析操作符
-    int PunctLen = readPunct(P);
-    if (PunctLen) {
-      Cur->next = newToken(TK_PUNCT, P, P + PunctLen);
-      Cur = Cur->next;
+    int punctlen = read_punct(p);
+    if (punctlen) {
+      cur->next = new_token(TK_PUNCT, p, p + punctlen);
+      cur = cur->next;
       // 指针前进Punct的长度位
-      P += PunctLen;
+      p += punctlen;
       continue;
     }
 
     // 处理无法识别的字符
-    error_at(P, "invalid token");
+    error_at(p, "invalid token");
   }
 
   // 解析结束，增加一个EOF，表示终止符。
-  Cur->next = newToken(TK_EOF, P, P);
+  cur->next = new_token(TK_EOF, p, p);
   // Head无内容，所以直接返回Next
-  return Head.next;
+  return head.next;
 }
 

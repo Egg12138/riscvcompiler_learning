@@ -97,22 +97,27 @@ static void gen_expr(Node *node) {
   error("invalid expression");
 }
 
+static void gen_stmt(Node *node) {
+  if (node->kind == ND_EXPR_STMT) {
+    gen_expr(node->LHS);
+    return;
+  }
+  error("Not a valid, needing a , comma call");
+}
 
-void code_gen(Node *node) {
+
+void code_gen(Node *prog_first_stmt) {
   // 声明一个全局main段，同时也是程序入口段
   printf("  .globl main\n");
   // main段标签
   printf("main:\n");
 
-  // 遍历AST树生成汇编
-  gen_expr(node);
-
-  // ret为jalr x0, x1, 0别名指令，用于返回子程序
-  // 返回的为a0的值
-  printf("  ret\n");
-
+  for (Node *n = prog_first_stmt; n; n = n->next) {
+    gen_stmt(n) ;
+    assert(Depth == 0);
+  }
   // 如果栈未清空则报错
-  assert(Depth == 0);
-
+  // assert(Depth == 0);
+  printf("  ret\n");
 
 }

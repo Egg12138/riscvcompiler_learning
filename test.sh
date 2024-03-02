@@ -9,13 +9,13 @@ assert() {
     # riscv64-unknown-elf-gcc-9.3.0 -static -o tmp tmp.s
     # 在qemu上运行
     qemu-riscv64 ./tmp
-    actual="$?"
+    result="$?"
     echo "test $input..."
-    if [ "$actual" = "$expected" ]; then
-        echo "\tleft: \`$input\` == right: \`$actual\`"
+    if [ "$result" = "$expected" ]; then
+        echo "\tleft: \`$input\` == right: \`$result\`"
         echo "\ttest:[$id]...Ok."
     else
-        echo "\tleft:\`$input\` != right:\`$actual\`, \`$expected\` is expected!"
+        echo "\tleft:\`$input\` != right:\`$result\`, \`$expected\` is expected, but got \`$result\`!"
         echo "\ttest:[$id]...Failed."
         #exit 1
     fi
@@ -39,6 +39,7 @@ assert 17 '1-8/(2*2)+3*6;'
 
 # [6] 支持一元运算的+ -
 assert 10 '-10+20;'
+assert 139 '139+1-1;' # if segmentation fault
 assert 10 '- -10;'
 assert 10 '- - +10;'
 assert 48 '------12*+++++----++++++++++4;'
