@@ -1,0 +1,2 @@
+/mnt/d/sourcecodes/riscv/riscvcompiler_learning/build/CMakeFiles/edit_cache.dir
+/mnt/d/sourcecodes/riscv/riscvcompiler_learning/build/CMakeFiles/rebuild_cache.dir
